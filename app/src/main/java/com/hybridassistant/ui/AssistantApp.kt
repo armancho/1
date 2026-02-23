@@ -1,7 +1,6 @@
 package com.hybridassistant.ui
 
 import android.app.Activity
-import android.app.DownloadManager
 import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,7 +31,6 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -49,7 +47,6 @@ import com.hybridassistant.data.AssistantState
 import com.hybridassistant.data.ChatMessage
 import com.hybridassistant.data.LlmModel
 import com.hybridassistant.data.Speaker
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -70,36 +67,6 @@ fun AssistantApp(
         if (result.resultCode == Activity.RESULT_OK) {
             val text = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!text.isNullOrBlank()) input = text
-        }
-    }
-
-    LaunchedEffect(state.models) {
-        while (true) {
-            state.models.filter { it.downloadId != null && it.isDownloading }.forEach { model ->
-                val progress = appContainer.downloadManager.queryProgress(model.downloadId!!)
-                if (progress != null) {
-                    when (progress.status) {
-                        DownloadManager.STATUS_RUNNING,
-                        DownloadManager.STATUS_PENDING,
-                        DownloadManager.STATUS_PAUSED -> {
-                            appContainer.repository.updateDownloadProgress(
-                                model.id,
-                                progress.progress,
-                                progress.status != DownloadManager.STATUS_PAUSED || progress.reason == DownloadManager.PAUSED_WAITING_TO_RETRY || progress.reason == DownloadManager.PAUSED_WAITING_FOR_NETWORK
-                            )
-                        }
-
-                        DownloadManager.STATUS_SUCCESSFUL -> {
-                            appContainer.repository.installModel(model.id)
-                        }
-
-                        DownloadManager.STATUS_FAILED -> {
-                            appContainer.repository.updateDownloadProgress(model.id, progress.progress, false)
-                        }
-                    }
-                }
-            }
-            delay(1200)
         }
     }
 
@@ -150,16 +117,30 @@ fun AssistantApp(
                     },
                     onDownload = { model ->
                         scope.launch {
-                            val id = appContainer.downloadManager.enqueueModelDownload(model)
-                            appContainer.repository.markModelDownload(model.id, id)
+                            appContainer.repository.markModelDownload(model.id, System.currentTimeMillis())
                         }
+                        appContainer.downloadManager.startOrResumeDownload(
+                            model = model,
+                            onProgress = { progress, downloading ->
+                                appContainer.repository.updateDownloadProgress(model.id, progress, downloading)
+                            },
+                            onComplete = {
+                                scope.launch { appContainer.repository.installModel(model.id) }
+                            },
+                            onError = { error ->
+                                scope.launch {
+                                    appContainer.repository.updateDownloadProgress(model.id, model.downloadProgress, false)
+                                    appContainer.repository.addMessage(ChatMessage(speaker = Speaker.ASSISTANT, text = error))
+                                }
+                            }
+                        )
                     },
                     onSelect = { id ->
                         scope.launch { appContainer.repository.selectModel(id) }
                     },
                     onDelete = { model ->
                         scope.launch {
-                            model.downloadId?.let(appContainer.downloadManager::removeDownload)
+                            appContainer.downloadManager.removeDownload(model)
                             appContainer.repository.removeModel(model.id)
                         }
                     }
@@ -248,12 +229,12 @@ private fun ModelsTab(
 
                     if (model.isDownloading || (model.downloadProgress in 1..99)) {
                         LinearProgressIndicator(progress = model.downloadProgress / 100f, modifier = Modifier.fillMaxWidth())
-                        Text("Прогресс: ${model.downloadProgress}% (при потере интернета загрузка продолжится автоматически через DownloadManager)")
+                        Text("Прогресс: ${model.downloadProgress}% (при разрыве сети нажмите 'Продолжить' — докачка продолжится с места)")
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (!model.installed) {
-                            Button(onClick = { onDownload(model) }) { Text(if (model.isDownloading) "Скачивается..." else "Скачать") }
+                            Button(onClick = { onDownload(model) }) { Text(if (model.isDownloading) "Скачивается..." else if (model.downloadProgress in 1..99) "Продолжить" else "Скачать") }
                         } else {
                             Button(onClick = { onSelect(model.id) }) {
                                 Text(if (state.selectedModel == model.id) "Активна" else "Выбрать")

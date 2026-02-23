@@ -16,9 +16,10 @@ Android-ассистент с голосом + чатом + управление
   - поиск YouTube / Play Market;
   - клик по тексту через AccessibilityService.
 - Модели (10 шт) с **реальными URL** GGUF (Hugging Face / TheBloke / Bartowski).
-- Загрузка моделей через Android `DownloadManager`:
+- Загрузка моделей через встроенный resumable downloader (OkHttp + Range):
   - прогресс-бар;
-  - ожидание сети / авто-продолжение после разрыва сети (поведение `DownloadManager`).
+  - докачка после разрыва сети с того же места по кнопке "Продолжить";
+  - автоматические повторные попытки при временных сетевых сбоях.
 - Реальные ответы LLM через Cloud:
   - OpenRouter API (нужен API key);
   - выбор cloud-model в настройках.

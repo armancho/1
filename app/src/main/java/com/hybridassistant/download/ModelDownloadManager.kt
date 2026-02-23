@@ -1,53 +1,118 @@
 package com.hybridassistant.download
 
-import android.app.DownloadManager
 import android.content.Context
-import android.database.Cursor
-import android.net.Uri
-import android.os.Environment
 import com.hybridassistant.data.LlmModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 class ModelDownloadManager(context: Context) {
     private val appContext = context.applicationContext
-    private val downloadManager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    private val client = OkHttpClient.Builder()
+        .retryOnConnectionFailure(true)
+        .build()
 
-    fun enqueueModelDownload(model: LlmModel): Long {
-        val request = DownloadManager.Request(Uri.parse(model.downloadUrl))
-            .setTitle("Downloading ${model.name}")
-            .setDescription("HybridAssistant model download")
-            .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_MOBILE or DownloadManager.Request.NETWORK_WIFI)
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(
-                appContext,
-                Environment.DIRECTORY_DOWNLOADS,
-                "models/${model.id}.gguf"
-            )
-        return downloadManager.enqueue(request)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val activeJobs = ConcurrentHashMap<String, Job>()
+
+    fun startOrResumeDownload(
+        model: LlmModel,
+        onProgress: (Int, Boolean) -> Unit,
+        onComplete: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (activeJobs[model.id]?.isActive == true) return
+
+        val job = scope.launch {
+            val file = modelFile(model.id)
+            file.parentFile?.mkdirs()
+
+            var attempts = 0
+            while (isActive) {
+                try {
+                    downloadOnce(model, file, onProgress)
+                    onProgress(100, false)
+                    onComplete()
+                    break
+                } catch (e: IOException) {
+                    attempts += 1
+                    onProgress(progressFromFile(file, -1L), false)
+                    if (attempts >= 8) {
+                        onError("Ошибка сети: ${e.message}. Нажмите 'Продолжить' для дозагрузки.")
+                        break
+                    }
+                    delay(1500L * attempts)
+                    onProgress(progressFromFile(file, -1L), true)
+                }
+            }
+        }
+
+        activeJobs[model.id] = job
+        job.invokeOnCompletion { activeJobs.remove(model.id) }
     }
 
-    fun queryProgress(downloadId: Long): DownloadProgress? {
-        val query = DownloadManager.Query().setFilterById(downloadId)
-        val cursor: Cursor = downloadManager.query(query) ?: return null
-        cursor.use {
-            if (!it.moveToFirst()) return null
-            val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-            val bytes = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-            val total = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-            val reason = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
-            val progress = if (total > 0) ((bytes * 100L) / total).toInt() else 0
-            return DownloadProgress(status, progress, reason)
+    fun removeDownload(model: LlmModel) {
+        activeJobs.remove(model.id)?.cancel()
+        modelFile(model.id).takeIf { it.exists() }?.delete()
+    }
+
+    private fun downloadOnce(
+        model: LlmModel,
+        file: File,
+        onProgress: (Int, Boolean) -> Unit
+    ) {
+        val downloaded = if (file.exists()) file.length() else 0L
+
+        val requestBuilder = Request.Builder().url(model.downloadUrl)
+        if (downloaded > 0L) {
+            requestBuilder.addHeader("Range", "bytes=$downloaded-")
+        }
+
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("HTTP ${response.code}")
+            }
+
+            val body = response.body ?: throw IOException("Пустой ответ сервера")
+            val contentLength = body.contentLength()
+            val totalLength = if (contentLength > 0) downloaded + contentLength else -1L
+
+            body.byteStream().use { input ->
+                FileOutputStream(file, downloaded > 0).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var read: Int
+                    var current = downloaded
+
+                    onProgress(progressFromPair(current, totalLength), true)
+                    while (input.read(buffer).also { read = it } != -1) {
+                        output.write(buffer, 0, read)
+                        current += read
+                        onProgress(progressFromPair(current, totalLength), true)
+                    }
+                    output.flush()
+                }
+            }
         }
     }
 
-    fun removeDownload(downloadId: Long) {
-        downloadManager.remove(downloadId)
+    private fun modelFile(modelId: String): File =
+        File(appContext.filesDir, "models/$modelId.gguf")
+
+    private fun progressFromFile(file: File, total: Long): Int =
+        progressFromPair(if (file.exists()) file.length() else 0L, total)
+
+    private fun progressFromPair(current: Long, total: Long): Int {
+        if (total <= 0L) return if (current > 0) 1 else 0
+        return ((current * 100L) / total).toInt().coerceIn(0, 100)
     }
 }
-
-data class DownloadProgress(
-    val status: Int,
-    val progress: Int,
-    val reason: Int
-)
