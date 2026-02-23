@@ -10,8 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -124,7 +124,7 @@ private fun ChatTab(
     val clipboard = LocalClipboardManager.current
 
     LazyColumn(
-        modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp),
+        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.78f).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(state.chatMessages) { message ->
@@ -149,7 +149,7 @@ private fun ChatTab(
         OutlinedTextField(
             value = input,
             onValueChange = onInput,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(0.75f),
             placeholder = { Text("Введите команду") }
         )
         IconButton(onClick = onVoice) { Icon(Icons.Default.Mic, contentDescription = "Voice") }
