@@ -8,7 +8,9 @@ data class LlmModel(
     val sizeLabel: String,
     val downloadUrl: String,
     val installed: Boolean = false,
-    val downloadId: Long? = null
+    val downloadId: Long? = null,
+    val downloadProgress: Int = 0,
+    val isDownloading: Boolean = false
 )
 
 enum class Speaker {

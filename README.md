@@ -1,42 +1,45 @@
 # HybridAssistant (Android)
 
-Полноценный стартовый проект Android-ассистента с голосом + чатом + управлением устройством.
+Android-ассистент с голосом + чатом + управлением устройством и LLM.
 
-## Что уже реализовано
+## Что реализовано
 
-- Переименование проекта в **HybridAssistant**.
-- Package: `com.hybridassistant`.
-- Экран чата:
+- Переименование проекта: **HybridAssistant**, package `com.hybridassistant`.
+- Чат:
   - текстовый ввод;
-  - голосовой ввод (SpeechRecognizer);
-  - кнопка `Copy` на каждом сообщении.
-- Экран моделей (10 LLM):
-  - кнопки `Скачать / Выбрать / Удалить`.
-- Реальный менеджер загрузок моделей через Android `DownloadManager`.
-- Интеграция JNI-моста для `llama.cpp`:
-  - `app/src/main/cpp/hybridassistant_jni.cpp`
-  - `app/src/main/cpp/CMakeLists.txt`
-- Управление устройством через интенты:
+  - голосовой ввод;
+  - кнопка `Copy` у каждого сообщения.
+- Устройство:
   - открыть ссылку;
   - поиск в интернете;
   - открыть приложение;
-  - поиск в YouTube;
-  - поиск в Play Market.
-- AccessibilityService:
-  - отдельная вкладка с переходом в настройки;
-  - поддержка команды нажатия по тексту (`ClickByText`).
+  - поиск YouTube / Play Market;
+  - клик по тексту через AccessibilityService.
+- Модели (10 шт) с **реальными URL** GGUF (Hugging Face / TheBloke / Bartowski).
+- Загрузка моделей через Android `DownloadManager`:
+  - прогресс-бар;
+  - ожидание сети / авто-продолжение после разрыва сети (поведение `DownloadManager`).
+- Реальные ответы LLM через Cloud:
+  - OpenRouter API (нужен API key);
+  - выбор cloud-model в настройках.
+- JNI scaffold для `llama.cpp` (локальный on-device путь).
 
-## Как включить настоящий llama.cpp
+## Как получать реальные ответы LLM
 
-1. Положите исходники `llama.cpp` в:
-   `app/src/main/cpp/third_party/llama.cpp`
-2. Откройте проект в Android Studio и выполните Sync.
-3. Соберите `app`.
+1. Откройте вкладку **Модели**.
+2. Введите `OpenRouter API Key`.
+3. Введите модель, например: `openai/gpt-4o-mini`.
+4. Нажмите **Сохранить Cloud настройки**.
+5. Пишите вопросы в чат — ассистент будет отвечать через реальный LLM API.
 
-Если папки `llama.cpp` нет — соберется fallback JNI-стаб.
+## Локальная модель (llama.cpp)
 
-## Открыть в Android Studio
+1. Положите `llama.cpp` в `app/src/main/cpp/third_party/llama.cpp`.
+2. Sync проект в Android Studio.
+3. Соберите проект.
 
-1. `File -> Open` -> выбрать корень этого репозитория.
-2. Дождаться Gradle Sync.
-3. Запустить `app` на устройстве Android 8.0+.
+## Запуск
+
+1. `File -> Open` в Android Studio.
+2. Дождитесь Gradle Sync.
+3. Запустите `app` на Android 8.0+.
